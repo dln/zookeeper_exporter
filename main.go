@@ -24,6 +24,11 @@ type Servers struct {
 
 const concurrentFetch = 100
 
+const (
+	follower = iota
+	leader
+)
+
 // Commandline flags.
 var (
 	useExhibitor = flag.Bool("exporter.use_exhibitor", false, "Use Exhibitor to discover ZooKeeper servers")
@@ -67,6 +72,11 @@ var (
 	outstanding = prometheus.NewDesc(
 		"zookeeper_outstanding_requests",
 		"Outstanding requests.",
+		variableLabels, nil,
+	)
+	mode = prometheus.NewDesc(
+		"zookeeper_leader",
+		"Host is leader.",
 		variableLabels, nil,
 	)
 	znodeCount = prometheus.NewDesc(
@@ -248,6 +258,14 @@ func (e *exporter) pollServer(server string, ch chan<- prometheus.Metric, wg *sy
 			ch <- prometheus.MustNewConstMetric(outstanding, prometheus.GaugeValue, float64(v), server)
 		case 6: // Zkid
 		case 7: // Mode
+			var v float64
+			if s == "leader" {
+				v = leader
+			} else {
+				v = follower
+			}
+			log.Debugf("Mode: %d", v)
+			ch <- prometheus.MustNewConstMetric(mode, prometheus.GaugeValue, v, server)
 		case 8: // Node Count
 			v, _ := strconv.Atoi(s)
 			log.Debugf("Node count: %d", v)
