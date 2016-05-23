@@ -8,8 +8,8 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -33,47 +33,6 @@ var (
 
 var (
 	variableLabels = []string{"server"}
-
-	latencyMin = prometheus.NewDesc(
-		"zookeeper_latency_min_ms",
-		"Minimum latency.",
-		variableLabels, nil,
-	)
-	latencyAvg = prometheus.NewDesc(
-		"zookeeper_latency_avg_ms",
-		"Average latency.",
-		variableLabels, nil,
-	)
-	latencyMax = prometheus.NewDesc(
-		"zookeeper_latency_max_ms",
-		"Maximum latency.",
-		variableLabels, nil,
-	)
-	received = prometheus.NewDesc(
-		"zookeeper_packets_received",
-		"Bytes received.",
-		variableLabels, nil,
-	)
-	sent = prometheus.NewDesc(
-		"zookeeper_packets_sent",
-		"Bytes received.",
-		variableLabels, nil,
-	)
-	connections = prometheus.NewDesc(
-		"zookeeper_connections",
-		"Alive connections.",
-		variableLabels, nil,
-	)
-	outstanding = prometheus.NewDesc(
-		"zookeeper_outstanding_requests",
-		"Outstanding requests.",
-		variableLabels, nil,
-	)
-	znodeCount = prometheus.NewDesc(
-		"zookeeper_znode_count",
-		"Number of znodes in tree.",
-		variableLabels, nil,
-	)
 )
 
 var httpClient = http.Client{
@@ -203,56 +162,37 @@ func (e *exporter) pollServer(server string, ch chan<- prometheus.Metric, wg *sy
 		return
 	}
 
-	fmt.Fprintf(conn, "stat\n")
+	fmt.Fprintf(conn, "mntr\n")
 
 	scanner := bufio.NewScanner(conn)
 
-	sepFound := false
-	i := 0
+	r := regexp.MustCompile("[^\\s]+")
 	for scanner.Scan() {
 		entry := scanner.Text()
-		if sepFound {
-			i = i + 1
-		} else {
-			if len(entry) < 2 {
-				sepFound = true
-			}
+
+		key := r.FindAllString(entry, -1)[0]
+		value := r.FindAllString(entry, -1)[1]
+
+		switch key {
+		case "zk_version":
 			continue
-		}
-		s := strings.Split(entry, ": ")[1]
-		switch i {
-		case 1: // Latencies
-			lat := strings.Split(s, "/")
-			min, _ := strconv.Atoi(lat[0])
-			avg, _ := strconv.Atoi(lat[1])
-			max, _ := strconv.Atoi(lat[2])
-			log.Debugf("Latency:  min=%d avg=%d max=%d", min, avg, max)
-			ch <- prometheus.MustNewConstMetric(latencyMin, prometheus.GaugeValue, float64(min), server)
-			ch <- prometheus.MustNewConstMetric(latencyAvg, prometheus.GaugeValue, float64(avg), server)
-			ch <- prometheus.MustNewConstMetric(latencyMax, prometheus.GaugeValue, float64(max), server)
-		case 2: // Received
-			v, _ := strconv.Atoi(s)
-			log.Debugf("Received: %d", v)
-			ch <- prometheus.MustNewConstMetric(received, prometheus.GaugeValue, float64(v), server)
-		case 3: // Sent
-			v, _ := strconv.Atoi(s)
-			log.Debugf("Sent: %d", v)
-			ch <- prometheus.MustNewConstMetric(sent, prometheus.GaugeValue, float64(v), server)
-		case 4: // Connections
-			v, _ := strconv.Atoi(s)
-			log.Debugf("Connections: %d", v)
-			ch <- prometheus.MustNewConstMetric(connections, prometheus.GaugeValue, float64(v), server)
-		case 5: // Outstanding
-			v, _ := strconv.Atoi(s)
-			log.Debugf("Outstanding: %d", v)
-			ch <- prometheus.MustNewConstMetric(outstanding, prometheus.GaugeValue, float64(v), server)
-		case 6: // Zkid
-		case 7: // Mode
-		case 8: // Node Count
-			v, _ := strconv.Atoi(s)
-			log.Debugf("Node count: %d", v)
-			ch <- prometheus.MustNewConstMetric(znodeCount, prometheus.GaugeValue, float64(v), server)
-			break
+		case "zk_server_state":
+			log.Debugf("%s: %d", key+"_"+value, 1)
+			ch <- prometheus.MustNewConstMetric(
+				prometheus.NewDesc(
+					key+"_"+value,
+					"Server State.",
+					variableLabels, nil,
+				), prometheus.GaugeValue, 1, server)
+		default:
+			v, _ := strconv.Atoi(value)
+			log.Debugf("%s: %d", key, v)
+			ch <- prometheus.MustNewConstMetric(
+				prometheus.NewDesc(
+					key,
+					key,
+					variableLabels, nil,
+				), prometheus.GaugeValue, float64(v), server)
 		}
 	}
 }
