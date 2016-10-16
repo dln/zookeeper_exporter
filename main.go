@@ -207,7 +207,7 @@ func main() {
 		http.Redirect(w, r, *metricPath, http.StatusMovedPermanently)
 	})
 
-	log.Info("starting mesos_exporter on ", *addr)
+	log.Info("starting zookeeper_exporter on ", *addr)
 
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
