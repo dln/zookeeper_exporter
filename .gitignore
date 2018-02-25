@@ -2,3 +2,4 @@
 zookeeper_exporter
 *.tar.gz
 *-stamp
+.idea/
