@@ -15,14 +15,13 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/log"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Servers struct {
 	Servers []string `json:"servers"`
 	Port    int      `json:"port"`
 }
-
-const concurrentFetch = 100
 
 // Commandline flags.
 var (
@@ -197,12 +196,28 @@ func (e *exporter) pollServer(server string, ch chan<- prometheus.Metric, wg *sy
 	}
 }
 
+func exporterHandler(w http.ResponseWriter, r *http.Request, exporter *exporter) {
+	serversList := r.URL.Query().Get("servers")
+	if serversList=="" {
+		params := r.URL.Query()
+		if len(params["servers"]) != 0 {
+			exporter.addrs = params["servers"]
+		}
+		registry := prometheus.NewRegistry()
+		registry.MustRegister(exporter)
+		h := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
+		h.ServeHTTP(w, r)
+	}
+}
+
 func main() {
 	flag.Parse()
 	exporter := newZooKeeperExporter(flag.Args(), *useExhibitor)
-	prometheus.MustRegister(exporter)
 
-	http.Handle(*metricPath, prometheus.Handler())
+	http.HandleFunc(*metricPath, func(w http.ResponseWriter, r *http.Request) {
+		exporterHandler(w, r, exporter)
+	})
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, *metricPath, http.StatusMovedPermanently)
 	})
