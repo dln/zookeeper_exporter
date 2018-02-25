@@ -197,17 +197,14 @@ func (e *exporter) pollServer(server string, ch chan<- prometheus.Metric, wg *sy
 }
 
 func exporterHandler(w http.ResponseWriter, r *http.Request, exporter *exporter) {
-	serversList := r.URL.Query().Get("servers")
-	if serversList=="" {
-		params := r.URL.Query()
-		if len(params["servers"]) != 0 {
-			exporter.addrs = params["servers"]
-		}
-		registry := prometheus.NewRegistry()
-		registry.MustRegister(exporter)
-		h := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
-		h.ServeHTTP(w, r)
+	params := r.URL.Query()
+	if len(params["servers"]) != 0 {
+		exporter.addrs = params["servers"]
 	}
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(exporter)
+	h := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
+	h.ServeHTTP(w, r)
 }
 
 func main() {
