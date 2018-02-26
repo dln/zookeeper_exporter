@@ -32,6 +32,7 @@ var (
 
 var (
 	variableLabels = []string{"server"}
+	versionLabels = []string{"server", "version"}
 )
 
 var httpClient = http.Client{
@@ -157,7 +158,12 @@ func (e *exporter) pollServer(server string, ch chan<- prometheus.Metric, wg *sy
 
 	conn, err := net.Dial("tcp", server)
 	if err != nil {
-		e.recordErr(err)
+		ch <- prometheus.MustNewConstMetric(
+			prometheus.NewDesc(
+				"zk_up",
+				"zk_up",
+				variableLabels, nil,
+			), prometheus.GaugeValue, 0, server)
 		return
 	}
 
@@ -174,7 +180,18 @@ func (e *exporter) pollServer(server string, ch chan<- prometheus.Metric, wg *sy
 
 		switch key {
 		case "zk_version":
-			continue
+			ch <- prometheus.MustNewConstMetric(
+				prometheus.NewDesc(
+					"zk_version",
+					"zk_version",
+					versionLabels, nil,
+				), prometheus.GaugeValue, 1, server, value)
+			ch <- prometheus.MustNewConstMetric(
+				prometheus.NewDesc(
+					"zk_up",
+					"zk_up",
+					variableLabels, nil,
+				), prometheus.GaugeValue, 1, server)
 		case "zk_server_state":
 			log.Debugf("%s: %d", key+"_"+value, 1)
 			ch <- prometheus.MustNewConstMetric(
