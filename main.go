@@ -15,14 +15,13 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/log"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Servers struct {
 	Servers []string `json:"servers"`
 	Port    int      `json:"port"`
 }
-
-const concurrentFetch = 100
 
 // Commandline flags.
 var (
@@ -33,6 +32,7 @@ var (
 
 var (
 	variableLabels = []string{"server"}
+	versionLabels = []string{"server", "version"}
 )
 
 var httpClient = http.Client{
@@ -158,7 +158,12 @@ func (e *exporter) pollServer(server string, ch chan<- prometheus.Metric, wg *sy
 
 	conn, err := net.Dial("tcp", server)
 	if err != nil {
-		e.recordErr(err)
+		ch <- prometheus.MustNewConstMetric(
+			prometheus.NewDesc(
+				"zk_up",
+				"zk_up",
+				variableLabels, nil,
+			), prometheus.GaugeValue, 0, server)
 		return
 	}
 
@@ -175,7 +180,18 @@ func (e *exporter) pollServer(server string, ch chan<- prometheus.Metric, wg *sy
 
 		switch key {
 		case "zk_version":
-			continue
+			ch <- prometheus.MustNewConstMetric(
+				prometheus.NewDesc(
+					"zk_version",
+					"zk_version",
+					versionLabels, nil,
+				), prometheus.GaugeValue, 1, server, value)
+			ch <- prometheus.MustNewConstMetric(
+				prometheus.NewDesc(
+					"zk_up",
+					"zk_up",
+					variableLabels, nil,
+				), prometheus.GaugeValue, 1, server)
 		case "zk_server_state":
 			log.Debugf("%s: %d", key+"_"+value, 1)
 			ch <- prometheus.MustNewConstMetric(
@@ -197,12 +213,25 @@ func (e *exporter) pollServer(server string, ch chan<- prometheus.Metric, wg *sy
 	}
 }
 
+func exporterHandler(w http.ResponseWriter, r *http.Request, exporter *exporter) {
+	params := r.URL.Query()
+	if len(params["servers"]) != 0 {
+		exporter.addrs = params["servers"]
+	}
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(exporter)
+	h := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
+	h.ServeHTTP(w, r)
+}
+
 func main() {
 	flag.Parse()
 	exporter := newZooKeeperExporter(flag.Args(), *useExhibitor)
-	prometheus.MustRegister(exporter)
 
-	http.Handle(*metricPath, prometheus.Handler())
+	http.HandleFunc(*metricPath, func(w http.ResponseWriter, r *http.Request) {
+		exporterHandler(w, r, exporter)
+	})
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, *metricPath, http.StatusMovedPermanently)
 	})
